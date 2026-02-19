@@ -6,7 +6,7 @@ import yfinance as yf
 
 
 def get_random_assets(
-    asset_sample_size: int = 10,
+    asset_sample_size: int = 3,
     start_date: str = "2024-07-01",
     end_date: str = "2025-06-30",
     companies_file: Path = Path(
@@ -60,15 +60,20 @@ def get_random_assets(
     for ticker in tickers:
         try:
             close_prices = data[ticker]["Close"].dropna()
-
-            if close_prices.empty:
-                raise ValueError("No price data")
-
             last_close = close_prices.iloc[-1]
-            total_return = (last_close / close_prices.iloc[0]) - 1
-            daily_volatility = close_prices.pct_change().dropna().std()
 
-            rows.append([ticker, last_close, total_return, daily_volatility])
+            returns = close_prices.pct_change().dropna()
+
+            trading_days = 252
+            n_days = len(returns)
+
+            # Annualized return (CAGR)
+            annual_return = (last_close / close_prices.iloc[0]) ** (trading_days / n_days) - 1
+
+            # Annualized volatility
+            annual_volatility = returns.std() * (trading_days ** 0.5)       
+ 
+            rows.append([ticker, last_close, annual_return, annual_volatility])
 
         except Exception:
             rows.append([ticker, None, None, None])
@@ -129,16 +134,21 @@ def get_assets(
 
     for ticker in tickers:
         try:
-            close_prices = data[ticker]["Close"].dropna()
+           close_prices = data[ticker]["Close"].dropna()
+           last_close = close_prices.iloc[-1]
 
-            if close_prices.empty:
-                raise ValueError("No price data")
+           returns = close_prices.pct_change().dropna()
 
-            last_close = close_prices.iloc[-1]
-            total_return = (last_close / close_prices.iloc[0]) - 1
-            daily_volatility = close_prices.pct_change().dropna().std()
+           trading_days = 252
+           n_days = len(returns)
 
-            rows.append([ticker, last_close, total_return, daily_volatility])
+           # Annualized return (CAGR)
+           annual_return = (last_close / close_prices.iloc[0]) ** (trading_days / n_days) - 1
+
+           # Annualized volatility
+           annual_volatility = returns.std() * (trading_days ** 0.5)       
+ 
+           rows.append([ticker, last_close, annual_return, annual_volatility])
 
         except Exception:
             rows.append([ticker, None, None, None])
@@ -146,5 +156,5 @@ def get_assets(
     # --- Build output DataFrame ----------------------------------------------
     return pd.DataFrame(
         rows,
-        columns=["Ticker", "Last Close", "Total Return", "Daily Volatility"]
+        columns=["ticker", "close", "returns", "volatility"]
     )
