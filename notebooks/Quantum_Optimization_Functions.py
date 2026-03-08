@@ -1,9 +1,12 @@
 
 from pathlib import Path
-from typing import List
+from typing import List, Dict, Any
 import pandas as pd
 import yfinance as yf
 import numpy as np
+from itertools import product
+
+#------------------------------------------------------------------------#
 
 def get_assets(
     companies_list = [], 
@@ -11,7 +14,7 @@ def get_assets(
     end_date: str = "2025-06-30",
     sample_size: int = 10, 
     companies_file: Path = Path(
-        r"C:\Users\patri\OneDrive\Projects\pyton\portfolio_optimzation\data\S_n_P_500.csv"
+        r"../data/S_n_P_500.csv"
     )    
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
@@ -148,28 +151,115 @@ def get_assets(
 
     return summary_df, daily_returns
 
+##########################################################################
+#    Helper Functions 
+##########################################################################
 
-# --- Helper: QUBO and Ising energy evaluation ---
+def compute_expected_return_vector(Returns_Matrix: np.ndarray) -> np.ndarray:
+    """
+    Compute Expected_Return_Vector using arithmetic mean daily returns
+    scaled to annual (non-compounded).
+    """
+    Mean_Daily_Returns = Returns_Matrix.mean(axis=0)
+    Expected_Return_Vector = 252 * Mean_Daily_Returns
+    return Expected_Return_Vector
 
-def qubo_value(bits, Q, c):
-    """Evaluate QUBO value for given bitstring."""
-    x = np.array(bits)
-    return float(x @ Q @ x + c @ x)
+#--------------------------------------------------------------------------#
 
-def ising_value(bits, h, J):
-    """Evaluate Ising energy for given bitstring."""
-    z = 1 - 2 * np.array(bits)  # Binary-to-spin conversion
-    e = np.sum(h * z)
-    for i in range(len(bits)):
-        for j in range(i+1, len(bits)):
-            e += J[i, j] * z[i] * z[j]
-    return float(e)
+def build_Q_Matrix(Covariance_Matrix: np.ndarray,
+                   Expected_Return_Vector: np.ndarray,
+                   Risk_Aversion_Parameter: float) -> np.ndarray:
+    """
+    Build the Q_Matrix for a mean-variance portfolio QUBO with no constraints.
 
-# --- Piecewise budget penalty ---
-def budget_piecewise_penalty(cost, band_low, band_high, alpha, budget):
-    if cost < band_low:
-        return alpha * (band_low - cost) ** 2 / budget**2
-    elif cost > band_high:
-        return alpha * (cost - band_high) ** 2 / budget**2
-    return 0.0
+    E(x) = x^T Q_Matrix x
+    where Q_Matrix = lambda * Covariance_Matrix - diag(Expected_Return_Vector)
+    """
+    N_Assets = Covariance_Matrix.shape[0]
+    Diagonal_Return_Matrix = np.diag(Expected_Return_Vector)
+
+    Q_Matrix = Risk_Aversion_Parameter * Covariance_Matrix - Diagonal_Return_Matrix
+
+    assert Q_Matrix.shape == (N_Assets, N_Assets)
+    return Q_Matrix
+
+#-------------------------------------------------------------------------#
+
+def generate_portfolios(assets: List[str]) -> List[Dict[str, Any]]:
+    """
+    Generate all non-empty portfolio combinations using a binary
+    QUBO-style encoding.
+
+    In a QUBO formulation of portfolio selection, each asset i
+    is associated with a binary decision variable:
+
+        x_i ∈ {0, 1}
+
+    where:
+        x_i = 1  → asset i is included in the portfolio
+        x_i = 0  → asset i is excluded
+
+    For n assets, there are 2^n possible binary configurations.
+    This function enumerates all configurations EXCEPT the
+    all-zero vector (the empty portfolio).
+
+    Parameters
+    ----------
+    assets : List[str]
+        A list of asset identifiers (e.g., ticker symbols).
+
+    Returns
+    -------
+    List[Dict[str, Any]]
+        A list of dictionaries. Each dictionary contains:
+            - "binary_vector": List[int]
+                  The QUBO decision vector.
+            - "portfolio": List[str]
+                  The selected assets corresponding to that vector.
+
+        The total number of returned portfolios is (2^n - 1).
+    """
+
+    n = len(assets)
+    portfolios = []
+
+    # Generate all binary combinations of length n
+    for binary_vector in product([0, 1], repeat=n):
+
+        # Skip the empty portfolio (all zeros)
+        if sum(binary_vector) == 0:
+            continue
+
+        selected_assets = [
+            asset for asset, bit in zip(assets, binary_vector) if bit == 1
+        ]
+
+        portfolios.append({
+            "binary_vector": list(binary_vector),
+            "portfolio": selected_assets
+        })
+
+    return portfolios
+
+#-------------------------------------------------------------------#
+
+def compute_QUBO_Energy(Binary_Decision_Vector: np.ndarray,
+                        Q_Matrix: np.ndarray) -> float:
+    """
+    Compute the QUBO energy E(x) = x^T Q_Matrix x for a given binary vector x.
+    """
+    return float(Binary_Decision_Vector.T @ Q_Matrix @ Binary_Decision_Vector)
+
+
+#---------------------------------------------------------------------#
+
+def compute_portfolio_risk_and_return(Binary_Decision_Vector: np.ndarray,
+                                      Covariance_Matrix: np.ndarray,
+                                      Expected_Return_Vector: np.ndarray):
+    """
+    Compute portfolio risk (variance) and expected return for a given binary vector.
+    """
+    Portfolio_Risk = float(Binary_Decision_Vector.T @ Covariance_Matrix @ Binary_Decision_Vector)
+    Portfolio_Return = float(Expected_Return_Vector @ Binary_Decision_Vector)
+    return Portfolio_Risk, Portfolio_Return
 
