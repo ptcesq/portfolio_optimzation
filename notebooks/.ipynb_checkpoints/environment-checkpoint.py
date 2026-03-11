@@ -13,7 +13,8 @@ libs = ["numpy",
     "pylatexenc", 
     "qiskit_algorithms", 
     "yfinance", 
-    "qiskit_aer"] 
+    "qiskit_aer", 
+    "qiskit-finance"] 
 
 def environment_state():
     data = []
